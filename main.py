@@ -99,10 +99,14 @@ def main():
     larvae = np.array([])
 
     larvae, corals_left = broadcast_spawning(poblated_id, 0.9, larvae, coral_map) #Fb define la cantidad de broadcast spawners respecto al total de corales
-    ''''
-    print(larvae)
-    print(corals_left)
-    '''
+
+    larvae = brooding(,coral_map)
+
+
+
+    # Falta fase de asexual reproduction
+
+    ## Poblated_id debe actualizarse con la posición de los hijos y con las mu
 
 
     

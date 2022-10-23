@@ -10,4 +10,4 @@ def crossover(list1,list2):
 def mutation(list1):
     # Realiza mutación de una solución
     
-    pass
+    return list1
