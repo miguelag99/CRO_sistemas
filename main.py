@@ -1,10 +1,11 @@
+from re import X
 import numpy as np
 import pandas as pd
 import random
 
 from scipy.io import loadmat
 
-from utils import crossover
+from utils import crossover, mutation
 
 # Caracteristicas
 # 2x2 Km
@@ -21,16 +22,27 @@ class CRO():
         extra_data = loadmat(file_name)
         self.points_df = pd.DataFrame(data=np.concatenate((np.array(extra_data['bt']),\
             np.array(extra_data['C'])),axis = 1),columns=['x','y','cost'])
-        self.points_df['id'] = list(range(0,100))   #ID de cada posible punto
+        self.points_df['clients_in_range'] = 0
         self.clients_df = pd.DataFrame(data= np.array(extra_data['xp']),columns=['x','y'])
-   
+
+
+        for index in range(len(self.points_df)):
+           self.points_df.iloc[index]['clients_in_range'] = [1,2,3]
+
+        print(self.points_df)
+
         self.N = 100    #Se trabaja con 100 individuos
         self.M = 30     #Cada solucion se compone por 30 puntos
         self.coral_map = np.zeros((self.N,self.M))
 
         self.rho = 0.4  #Define la cantidad inicial (ratio) de individuos libres
         
+        # Parametros de la funcion de fitness
+        self.alpha = 1
+        self.beta = 1
+
         self.cro_init()
+
 
     def cro_init(self, verbose = False):
         # Rellena la lista inicial de individuos con soluciones aleatorias
@@ -52,11 +64,21 @@ class CRO():
     def get_coral_data(self):
         return self.poblated_id, self.coral_map
 
-    def test_duplicated(self):
+    def get_sol_fitness(self,sol):
+        # Metodo para el calculo del fitness
+
+        # Iteramos por cada punto de la solucion
+        for index in range(len(sol)):
+            pos_id = sol[index]
+            x = self.points_df.iloc[pos_id]['']
+
+    def get_clients_in_coverage(self):
+        # A partir de la posicion de un ap se calcula cuantos clientes estan dentro
         pass
 
-    def check_bounds(self):
-        pass
+
+
+
 
 def broadcast_spawning(corals_id,Fb,larvae_list,coral_map):
 
@@ -75,16 +97,24 @@ def broadcast_spawning(corals_id,Fb,larvae_list,coral_map):
 
         parent1 = coral_map[parents_id[0],:]
         parent2 = coral_map[parents_id[1],:]
-        larvae_list =  np.vstack((larvae_list,crossover(parent1,parent2))) if larvae_list.size else crossover(parent1,parent2)
+        larvae_list =  np.vstack((larvae_list,crossover(parent1,parent2))) if\
+            larvae_list.size else crossover(parent1,parent2)
 
     return larvae_list, corals_id[int(Fb*len(corals_id)):]    # La funcion debe devolver una matriz de larvas y la lista de poblated_id quitando los corales usados.
     
 
 def brooding(corals_id,larvae_list,coral_map):
-    pass
+    
+    for index in range(int(len(corals_id))):    ###################################################### cambiar por un map por favor
+
+        parent = coral_map[index,:]
+
+        # hacemos la mutacion
+        larvae_list =  np.vstack((larvae_list,mutation(parent))) if\
+             larvae_list.size else mutation(parent)
 
     # Comprobar en las mutaciones que estas dentro de los limites y no se repiten
-        
+    return larvae_list  
         
 
 
@@ -92,15 +122,20 @@ def brooding(corals_id,larvae_list,coral_map):
 
 def main():
 
-    iter = 1000
+    iter = 1000     # Numero de iteraciones del algoritmo
     coral_class = CRO('Practica_Sist_Tec_Teleco.mat')
 
-    poblated_id, coral_map = coral_class.get_coral_data()
-    larvae = np.array([])
+    poblated_id, coral_map = coral_class.get_coral_data()   # Poblated_id son los indices de coral_map que estan con corales
+    larvae = np.array([])       # Aqui se van a almacenar las larvas que se generan
 
+    # corals_left son los indices que se van a utilizar para brooding (los que sobran de broadcast_spawning)
     larvae, corals_left = broadcast_spawning(poblated_id, 0.9, larvae, coral_map) #Fb define la cantidad de broadcast spawners respecto al total de corales
 
-    larvae = brooding(,coral_map)
+    larvae = brooding(corals_left ,larvae ,coral_map)
+
+    # print(larvae[:40,:]) ########################################## Probar a guardarlo y verlo fuera completo
+
+    
 
 
 
