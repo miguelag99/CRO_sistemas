@@ -30,3 +30,8 @@ def test_duplicated(self):
 
 def check_bounds(self):
     pass
+
+def calculate_euclidean_distance(p1,p2):
+    a = np.power(p1[0]-p2[0],2)
+    b = np.power(p1[1]-p2[1],2)
+    return np.sqrt([a+b])
