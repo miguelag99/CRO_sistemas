@@ -28,7 +28,6 @@ class CRO():
         self.points_df['clients_in_range'] = 0
         self.clients_df = pd.DataFrame(data= np.array(extra_data['xp']),columns=['x','y'])
 
-
         for index in range(len(self.points_df)):
            self.points_df.at[index,'clients_in_range'] = [np.zeros((1,500))]
 
@@ -44,8 +43,10 @@ class CRO():
         self.alpha = 1
         self.beta = 1
 
-        self.cro_init()
+        # Parametro de depredacion
+        self.Pd = 0.1
 
+        self.cro_init()
 
     def cro_init(self, verbose = False):
         # Rellena la lista inicial de individuos con soluciones aleatorias
@@ -65,7 +66,16 @@ class CRO():
             pd.DataFrame(self.coral_map).astype(int).to_csv('coral_map.csv',header=False,index=False)
 
     def get_coral_data(self):
+        # self.update_poblated_id
         return self.poblated_id, self.coral_map
+
+    def update_coral(self, new_coral_map):
+        # actualiza el coral y poblated id (ver que soluciones estan libres y cuales no)
+        self.coral_map = new_coral_map
+        summary = np.sum(self.coral_map,axis = 1,dtype=int)     # Se suma cada fila para ver cuales de las pos estan vacias
+        summary[summary > 0] = 1                                # Se convierte a binario
+        self.poblated_id = summary                              # Se actualiza en la clase
+        
 
     def get_sol_fitness(self,sol):
         # Metodo para el calculo del fitness de una solucion de 30 elementos o id
@@ -81,6 +91,23 @@ class CRO():
             global_fitness = global_fitness + local_fitness
 
         return global_fitness
+
+    def get_coral_fitness(self, ranked = True):
+
+        coral_ranking = pd.DataFrame(data={'id':range(self.coral_map.shape[0]),\
+            'fitness':np.zeros((self.coral_map.shape[0]))} ,dtype=int)
+
+        for full_flag, solution, row in zip(self.poblated_id,self.coral_map,coral_ranking.iterrows()):      # Iteramos a la vez por el coral map y la lista en bin si esta ocupad@
+            if int(full_flag) == 1:                                                                         # Si hay solucion
+                coral_ranking['fitness'].iloc[row[0]] = self.get_sol_fitness(solution)                      # dataframe con fitness y id
+
+        if ranked:
+            return coral_ranking.sort_values(by='fitness',ascending=False)                                  # se ordenan por fitness
+        else:
+            return coral_ranking
+
+
+
 
     def get_clients_in_coverage(self):
         # A partir de la posicion de un ap se calcula cuantos clientes estan dentro
@@ -128,7 +155,7 @@ def broadcast_spawning(corals_id,Fb,larvae_list,coral_map):
 
 def brooding(corals_id,larvae_list,coral_map):
 
-    for index in corals_id:    ###################################################### cambiar por un map por favor
+    for index in corals_id:    ###################################################### TODO cambiar por un map por favor
 
         parent = coral_map[index,:]
         # Hacemos la mutacion
@@ -141,8 +168,8 @@ def brooding(corals_id,larvae_list,coral_map):
 
 def larvae_setting(larvae_list, coral_map, coral_class, k):
 
-    print('Asentando larvas')
-    for index in tqdm(range(len(larvae_list))):
+    
+    for index in range(len(larvae_list)):
         larvae_sol = larvae_list[index,:]
         larvae_fitness = coral_class.get_sol_fitness(larvae_sol)    # Calcular el fitness de la larva
 
@@ -164,38 +191,58 @@ def larvae_setting(larvae_list, coral_map, coral_class, k):
                 else:
                     n_try = n_try + 1
 
-    return coral_map
+    coral_class.update_coral(coral_map)
+
+
+
+
+
+def depredation(coral_class, Pd = 0.1):
+    
+    coral_ranking = coral_class.get_coral_fitness()
+    filled_ranking = coral_ranking[coral_ranking['fitness']!= 0]
+
+    n_depredated = int(np.floor(Pd*filled_ranking.shape[0]))                # numero de depredados
+    # filled_ranking['fitness'][-1-n_depredated:] = 0                         # borramos el fitness a los depredados
+
+    ids = filled_ranking[-1-n_depredated:]['id']
+
+
+    _, coral_map = coral_class.get_coral_data()
+
+    for id in ids:
+        coral_map[id,:] = np.zeros((1,30))
+
+    coral_class.update_coral(coral_map)
+
+
+
+
 
 def main():
 
-    iter = 1000     # Numero de iteraciones del algoritmo
+    iter = 50     # Numero de iteraciones del algoritmo
     coral_class = CRO('Practica_Sist_Tec_Teleco.mat')
 
     ## Fases de reproduccion
+    for i in tqdm(range(iter)):
+        poblated_id, coral_map = coral_class.get_coral_data()   # Poblated_id son los indices de coral_map que estan con corales
+        larvae = np.array([])       # Aqui se van a almacenar las larvas que se generan
 
-    poblated_id, coral_map = coral_class.get_coral_data()   # Poblated_id son los indices de coral_map que estan con corales
-    larvae = np.array([])       # Aqui se van a almacenar las larvas que se generan
+        # corals_left son los indices que se van a utilizar para brooding (los que sobran de broadcast_spawning)
+        larvae, corals_left = broadcast_spawning(poblated_id, 0.9, larvae, coral_map) #Fb define la cantidad de broadcast spawners respecto al total de corales
+        larvae = brooding(corals_left ,larvae ,coral_map).astype(int)
+        # np.savetxt('larvas.csv',larvae,delimiter=',', fmt='%.0d')
+        
+        ## Fase de asentamiento
+        larvae_setting(larvae,coral_map,coral_class,5)
 
-    # corals_left son los indices que se van a utilizar para brooding (los que sobran de broadcast_spawning)
-    larvae, corals_left = broadcast_spawning(poblated_id, 0.9, larvae, coral_map) #Fb define la cantidad de broadcast spawners respecto al total de corales
-    larvae = brooding(corals_left ,larvae ,coral_map).astype(int)
-    # np.savetxt('larvas.csv',larvae,delimiter=',', fmt='%.0d')
-    
-    ## Fase de asentamiento
-    tic = time.time()
-    new_coral_map = larvae_setting(larvae,coral_map,coral_class,5)
-    print(f'Tiempo de asentamiento de las larvas es {time.time()-tic}')
-
-
-
-    # Falta fase de asexual reproduction
-
-    ## Poblated_id y coral_map deben actualizarse con la posición de los hijos
+        ###################### TODO Falta fase de asexual reproduction
 
 
-    
+        ## Fase de depredacion
+        depredation(coral_class)
 
-    
     
 
 
