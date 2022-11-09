@@ -82,32 +82,52 @@ class CRO():
 
         global_fitness = 0 #Fitness total de la solucion (30 elementos)
 
-        # Iteramos por cada punto de la solucion que se corresponde a un id del dataframe de 100 puntos
-        for index in range(len(sol)):
-            pos_id = int(sol[index])
-            C2 = float(self.points_df.iloc[pos_id]['cost'])
-            C1 = np.sum(self.points_df.iloc[pos_id]['clients_in_range'][0][0])
-            local_fitness = self.alpha*(C1) + self.beta*(1/C2)  # Fitness de un elemento (id) de la solucion
-            global_fitness = global_fitness + local_fitness
+        ## Iteramos por cada punto de la solucion que se corresponde a un id del dataframe de 100 puntos
+        # for index in range(len(sol)):
+        #     pos_id = int(sol[index])
+        #     C2 = float(self.points_df.iloc[pos_id]['cost'])
+        #     C1 = np.sum(self.points_df.iloc[pos_id]['clients_in_range'][0][0])
+        #     local_fitness = self.alpha*(C1) + self.beta*(1/C2)  # Fitness de un elemento (id) de la solucion
+        #     global_fitness = global_fitness + local_fitness
 
-        return global_fitness
+        local_fitness = np.vectorize(lambda x: self.alpha*(np.sum(self.points_df.iloc[int(x)]['clients_in_range'][0][0])) + \
+                                            self.beta*(1/float(self.points_df.iloc[int(x)]['cost'])))(sol)
+
+        return np.sum(local_fitness, dtype = np.float32)
+
 
     def get_coral_fitness(self, ranked = True):
 
         coral_ranking = pd.DataFrame(data={'id':range(self.coral_map.shape[0]),\
             'fitness':np.zeros((self.coral_map.shape[0]))} ,dtype=int)
 
-        for full_flag, solution, row in zip(self.poblated_id,self.coral_map,coral_ranking.iterrows()):      # Iteramos a la vez por el coral map y la lista en bin si esta ocupad@
-            if int(full_flag) == 1:                                                                         # Si hay solucion
-                coral_ranking['fitness'].iloc[row[0]] = self.get_sol_fitness(solution)                      # dataframe con fitness y id
+        coral_ranking_fitness = np.vectorize(lambda i:  self.get_sol_fitness(self.coral_map[i]) \
+                                                if int(self.poblated_id[i]) == 1 \
+                                                else coral_ranking['fitness'].iloc[i] \
+                                                )(list(range(len(self.poblated_id))))
+        coral_ranking['fitness'] = [i for _,i in sorted(zip(coral_ranking.iloc[:,0],coral_ranking_fitness))]
+
+        # for full_flag, solution, row in zip(self.poblated_id,self.coral_map,coral_ranking.iterrows()):      # Iteramos a la vez por el coral map y la lista en bin si esta ocupad@
+        #     if int(full_flag) == 1:                                                                         # Si hay solucion
+        #        coral_ranking['fitness'].iloc[row[0]] = self.get_sol_fitness(solution)                      # dataframe con fitness y id
 
         if ranked:
             return coral_ranking.sort_values(by='fitness',ascending=False)                                  # se ordenan por fitness
         else:
             return coral_ranking
 
+    def get_best_solution(self):
 
+        # Sacamos la mejor solución final
+        sorted_sol = self.get_coral_fitness(ranked=True)
+        positions = np.zeros((30,2))
 
+        for id,i in zip(self.coral_map[sorted_sol['id'].iloc[0],:], range(30)):
+            element = self.points_df.iloc[int(id)]
+            positions[i,0] = element['x']
+            positions[i,1] = element['y']
+
+        return positions
 
     def get_clients_in_coverage(self):
         # A partir de la posicion de un ap se calcula cuantos clientes estan dentro
@@ -155,7 +175,7 @@ def broadcast_spawning(corals_id,Fb,larvae_list,coral_map):
 
 def brooding(corals_id,larvae_list,coral_map):
 
-    for index in corals_id:    ###################################################### TODO cambiar por un map por favor
+    for index in corals_id: 
 
         parent = coral_map[index,:]
         # Hacemos la mutacion
@@ -168,15 +188,16 @@ def brooding(corals_id,larvae_list,coral_map):
 
 def larvae_setting(larvae_list, coral_map, coral_class, k):
 
-    
     for index in range(len(larvae_list)):
         larvae_sol = larvae_list[index,:]
         larvae_fitness = coral_class.get_sol_fitness(larvae_sol)    # Calcular el fitness de la larva
 
         # Intentar asentarse (como maximo k veces) en una posicion aleatoria que viene definida por un id de la lista
         n_try = 0
+    
         while n_try < k:
             try_pose = int(random.sample(range(100),1)[0])
+            
             # Si la posicion (id) esta vacia (todas las componentes a 0), si no se compara con la que está asentada
             if int(np.sum(coral_map[try_pose,:])) == 0:
                 coral_map[try_pose,:] = larvae_sol
@@ -202,17 +223,18 @@ def depredation(coral_class, Pd = 0.1):
     coral_ranking = coral_class.get_coral_fitness()
     filled_ranking = coral_ranking[coral_ranking['fitness']!= 0]
 
-    n_depredated = int(np.floor(Pd*filled_ranking.shape[0]))                # numero de depredados
+    n_depredated = int(np.floor(Pd*filled_ranking.shape[0]))                  # numero de depredados
     # filled_ranking['fitness'][-1-n_depredated:] = 0                         # borramos el fitness a los depredados
 
     ids = filled_ranking[-1-n_depredated:]['id']
 
-
     _, coral_map = coral_class.get_coral_data()
 
-    for id in ids:
-        coral_map[id,:] = np.zeros((1,30))
+    # for id in ids:
+    #     coral_map[id,:] = np.zeros((1,30))
 
+
+    coral_map[ids,:] = np.zeros((1,30))
     coral_class.update_coral(coral_map)
 
 
@@ -221,8 +243,10 @@ def depredation(coral_class, Pd = 0.1):
 
 def main():
 
-    iter = 50     # Numero de iteraciones del algoritmo
+    iter = 2   # Numero de iteraciones del algoritmo
     coral_class = CRO('Practica_Sist_Tec_Teleco.mat')
+
+    phases_times = np.zeros((iter,4),dtype = np.float16)
 
     ## Fases de reproduccion
     for i in tqdm(range(iter)):
@@ -230,20 +254,36 @@ def main():
         larvae = np.array([])       # Aqui se van a almacenar las larvas que se generan
 
         # corals_left son los indices que se van a utilizar para brooding (los que sobran de broadcast_spawning)
+        tic = time.time()
         larvae, corals_left = broadcast_spawning(poblated_id, 0.9, larvae, coral_map) #Fb define la cantidad de broadcast spawners respecto al total de corales
+        phases_times[i,0] = time.time() - tic
+        
+        tic = time.time()
         larvae = brooding(corals_left ,larvae ,coral_map).astype(int)
+        phases_times[i,1] = time.time() - tic
         # np.savetxt('larvas.csv',larvae,delimiter=',', fmt='%.0d')
         
         ## Fase de asentamiento
-        larvae_setting(larvae,coral_map,coral_class,5)
+        tic = time.time()
+        larvae_setting(larvae,coral_map,coral_class,3)
+        phases_times[i,2] = time.time() - tic
+
 
         ###################### TODO Falta fase de asexual reproduction
 
 
         ## Fase de depredacion
+        tic = time.time()
         depredation(coral_class)
-
+        phases_times[i,3] = time.time() - tic
     
+    print(np.mean(phases_times,axis=0))
+
+    sol = coral_class.get_best_solution()
+    print(sol)
+
+
+
 
 
 
