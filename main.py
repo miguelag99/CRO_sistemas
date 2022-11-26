@@ -1,14 +1,13 @@
-from re import X
-from turtle import pos
 import numpy as np
 import pandas as pd
 import random
 import time
+import cv2
 from tqdm import tqdm
 
 from scipy.io import loadmat
 
-from utils import crossover, mutation, calculate_euclidean_distance
+from utils import crossover, mutation, calculate_euclidean_distance, print_bt, print_solution
 
 # Caracteristicas
 # 2x2 Km
@@ -41,7 +40,7 @@ class CRO():
         
         # Parametros de la funcion de fitness
         self.alpha = 1
-        self.beta = 1
+        self.beta = 0
 
         # Parametro de depredacion
         self.Pd = 0.1
@@ -54,7 +53,7 @@ class CRO():
         full_cells = int((1-self.rho)*self.N)   #Numero de soluciones (corales) llenas
 
         # Generamos las soluciones iniciales que se van a poblar, el resto son espacios vacios
-        self.poblated_id = random.sample(range(100),full_cells)
+        self.poblated_id = sorted(random.sample(range(100),full_cells))
         # print(f'Se han rellenado las siguientes id{sorted(id)}')
         
         for index in self.poblated_id[0:full_cells]:
@@ -74,7 +73,8 @@ class CRO():
         self.coral_map = new_coral_map
         summary = np.sum(self.coral_map,axis = 1,dtype=int)     # Se suma cada fila para ver cuales de las pos estan vacias
         summary[summary > 0] = 1                                # Se convierte a binario
-        self.poblated_id = summary                              # Se actualiza en la clase
+        self.poblated_id = list(np.array(range(100))[summary.astype(bool)])                           # Se actualiza en la clase
+
         
 
     def get_sol_fitness(self,sol):
@@ -86,33 +86,45 @@ class CRO():
         # for index in range(len(sol)):
         #     pos_id = int(sol[index])
         #     C2 = float(self.points_df.iloc[pos_id]['cost'])
-        #     C1 = np.sum(self.points_df.iloc[pos_id]['clients_in_range'][0][0])
+        #     C1 = np.sum(self.points_df.iloc[pos_id]['clients_in_range'][0])
         #     local_fitness = self.alpha*(C1) + self.beta*(1/C2)  # Fitness de un elemento (id) de la solucion
         #     global_fitness = global_fitness + local_fitness
 
-        local_fitness = np.vectorize(lambda x: self.alpha*(np.sum(self.points_df.iloc[int(x)]['clients_in_range'][0][0])) + \
-                                            self.beta*(1/float(self.points_df.iloc[int(x)]['cost'])))(sol)
+        local_fitness = np.vectorize(lambda x: self.alpha*(np.sum(self.points_df.iloc[int(x)]['clients_in_range'][0])) + \
+                                             self.beta*(1/float(self.points_df.iloc[int(x)]['cost'])))(sol)
 
-        return np.sum(local_fitness, dtype = np.float32)
+        # print(local_fitness)
+
+        value_sum = 1/np.sum(local_fitness, dtype = np.float32)
+        
+        return value_sum
 
 
     def get_coral_fitness(self, ranked = True):
 
         coral_ranking = pd.DataFrame(data={'id':range(self.coral_map.shape[0]),\
-            'fitness':np.zeros((self.coral_map.shape[0]))} ,dtype=int)
+            'fitness':np.zeros((self.coral_map.shape[0]),dtype=np.float32)})
 
-        coral_ranking_fitness = np.vectorize(lambda i:  self.get_sol_fitness(self.coral_map[i]) \
-                                                if int(self.poblated_id[i]) == 1 \
-                                                else coral_ranking['fitness'].iloc[i] \
-                                                )(list(range(len(self.poblated_id))))
-        coral_ranking['fitness'] = [i for _,i in sorted(zip(coral_ranking.iloc[:,0],coral_ranking_fitness))]
+        # coral_ranking_fitness = np.vectorize(lambda i:  self.get_sol_fitness(self.coral_map[i]) \
+        #                                         if int(self.poblated_id[i]) == 1 \
+        #                                         else coral_ranking['fitness'].iloc[i] \
+        #                                         )(list(range(len(self.poblated_id))))
+        # coral_ranking['fitness'] = [i for _,i in sorted(zip(coral_ranking.iloc[:,0],coral_ranking_fitness))]
 
-        # for full_flag, solution, row in zip(self.poblated_id,self.coral_map,coral_ranking.iterrows()):      # Iteramos a la vez por el coral map y la lista en bin si esta ocupad@
-        #     if int(full_flag) == 1:                                                                         # Si hay solucion
-        #        coral_ranking['fitness'].iloc[row[0]] = self.get_sol_fitness(solution)                      # dataframe con fitness y id
+        # for full_flag, solution, row in zip(self.poblated_id,self.coral_map,coral_ranking.iterrows()):      # Iteramos a la vez por el coral map y la lista en bin si esta ocupad@                                                                                            
+        #    coral_ranking.iloc[row[0],1] = self.get_sol_fitness(solution)                                   # dataframe con fitness y id
+
+        for full_id, solution, idx in zip(self.poblated_id,self.coral_map, range(len(self.coral_map))):        # Iteramos a la vez por el coral map y la lista en bin si esta ocupad@                                                                                  
+            if np.sum(solution) > 0:
+                coral_ranking.iloc[idx,1] = self.get_sol_fitness(solution)                            
+                coral_ranking.iloc[idx,0] = full_id 
+            else:
+                coral_ranking.iloc[idx,1] = 0
+                coral_ranking.iloc[idx,0] = full_id
 
         if ranked:
             return coral_ranking.sort_values(by='fitness',ascending=False)                                  # se ordenan por fitness
+            
         else:
             return coral_ranking
 
@@ -120,14 +132,16 @@ class CRO():
 
         # Sacamos la mejor solución final
         sorted_sol = self.get_coral_fitness(ranked=True)
+   
         positions = np.zeros((30,2))
 
         for id,i in zip(self.coral_map[sorted_sol['id'].iloc[0],:], range(30)):
+            
             element = self.points_df.iloc[int(id)]
             positions[i,0] = element['x']
             positions[i,1] = element['y']
 
-        return positions
+        return positions, sorted_sol['fitness'].iloc[0]
 
     def get_clients_in_coverage(self):
         # A partir de la posicion de un ap se calcula cuantos clientes estan dentro
@@ -148,6 +162,11 @@ class CRO():
             self.points_df.at[index,'clients_in_range'] = [clients_in_range]
         print(f'Tiempo de calculo distancias de clientes es {time.time()-tic}')
 
+   
+        # copy_ponts = self.points_df
+        # copy_ponts['clients_in_range'] = copy_ponts['clients_in_range'].apply(lambda x: np.sum(x[0]))
+
+        # copy_ponts.to_csv('bs_lowest_clients.csv',header=False,index=False)
 
 
 def broadcast_spawning(corals_id,Fb,larvae_list,coral_map):
@@ -227,14 +246,15 @@ def depredation(coral_class, Pd = 0.1):
     # filled_ranking['fitness'][-1-n_depredated:] = 0                         # borramos el fitness a los depredados
 
     ids = filled_ranking[-1-n_depredated:]['id']
+    
 
     _, coral_map = coral_class.get_coral_data()
 
-    # for id in ids:
-    #     coral_map[id,:] = np.zeros((1,30))
 
+    for id in ids:
+        coral_map[id,:] = np.zeros((1,30))
 
-    coral_map[ids,:] = np.zeros((1,30))
+    # coral_map[ids,:] = np.zeros((1,30))
     coral_class.update_coral(coral_map)
 
 
@@ -243,13 +263,28 @@ def depredation(coral_class, Pd = 0.1):
 
 def main():
 
-    iter = 2   # Numero de iteraciones del algoritmo
+    iter = 250   # Numero de iteraciones del algoritmo
     coral_class = CRO('Practica_Sist_Tec_Teleco.mat')
+
+    # init cv2 image and video writer
+    img = np.zeros((1000,1000,3), np.uint8)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    out = cv2.VideoWriter('output.avi',cv2.VideoWriter_fourcc('M','J','P','G'), 5, (1000,1000))
+
+    img = print_bt(coral_class.points_df, img)
+    out.write(img)
+
+    # cv2 video show
+    cv2.imshow('frame',img)
+    cv2.waitKey(1)
+
 
     phases_times = np.zeros((iter,4),dtype = np.float16)
 
     ## Fases de reproduccion
-    for i in tqdm(range(iter)):
+    main_iterator = tqdm(range(iter))
+    for i in main_iterator:
+        
         poblated_id, coral_map = coral_class.get_coral_data()   # Poblated_id son los indices de coral_map que estan con corales
         larvae = np.array([])       # Aqui se van a almacenar las larvas que se generan
 
@@ -276,11 +311,23 @@ def main():
         tic = time.time()
         depredation(coral_class)
         phases_times[i,3] = time.time() - tic
-    
-    print(np.mean(phases_times,axis=0))
 
-    sol = coral_class.get_best_solution()
+        sol, best_fit = coral_class.get_best_solution()
+
+        img = print_solution(sol, img)
+        out.write(img)
+        cv2.imshow('frame',img)
+        cv2.waitKey(1)
+
+        img = print_bt(coral_class.points_df, img)
+        main_iterator.set_description(f'Current best fitness value {best_fit}')
+    
+    # print(np.mean(phases_times,axis=0))
+
+    sol,_ = coral_class.get_best_solution()
     print(sol)
+    np.savetxt('best_sol.csv',sol,delimiter=',')
+
 
 
 
