@@ -1,13 +1,17 @@
+import os
 import numpy as np
 import pandas as pd
 import random
 import time
 import cv2
+import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 from scipy.io import loadmat
 
 from utils import crossover, mutation, calculate_euclidean_distance, print_bt, print_solution
+
+SAVE_PATH = 'results_25_75/'
 
 # Caracteristicas
 # 2x2 Km
@@ -38,9 +42,11 @@ class CRO():
 
         self.rho = 0.4  #Define la cantidad inicial (ratio) de individuos libres
         
-        # Parametros de la funcion de fitness
-        self.alpha = 1
-        self.beta = 0
+        # Parametros de la funcion de fitness normalizados
+        self.alpha = 0.25/len(self.clients_df)   # Normalizamos entre el total de clientes
+        self.beta = 0.75/sum(self.points_df['cost']) # Normalizamos entre el coste total de todas las estaciones
+        # self.alpha = 1   # Normalizamos entre el total de clientes
+        # self.beta = 0 # Normalizamos entre el coste total de todas las estaciones
 
         # Parametro de depredacion
         self.Pd = 0.1
@@ -65,7 +71,7 @@ class CRO():
             pd.DataFrame(self.coral_map).astype(int).to_csv('coral_map.csv',header=False,index=False)
 
     def get_coral_data(self):
-        # self.update_poblated_id
+        
         return self.poblated_id, self.coral_map
 
     def update_coral(self, new_coral_map):
@@ -95,7 +101,7 @@ class CRO():
 
         # print(local_fitness)
 
-        value_sum = 1/np.sum(local_fitness, dtype = np.float32)
+        value_sum = np.sum(local_fitness, dtype = np.float32)
         
         return value_sum
 
@@ -132,7 +138,8 @@ class CRO():
 
         # Sacamos la mejor solución final
         sorted_sol = self.get_coral_fitness(ranked=True)
-   
+        # print(f'La mejor solución es la {sorted_sol.iloc[0,0]} con un fitness de {sorted_sol.iloc[0,1]}')
+
         positions = np.zeros((30,2))
 
         for id,i in zip(self.coral_map[sorted_sol['id'].iloc[0],:], range(30)):
@@ -205,8 +212,10 @@ def brooding(corals_id,larvae_list,coral_map):
     return larvae_list  
         
 
-def larvae_setting(larvae_list, coral_map, coral_class, k):
+def larvae_setting(larvae_list, coral_class, k):
 
+    _, coral_map = coral_class.get_coral_data()
+    
     for index in range(len(larvae_list)):
         larvae_sol = larvae_list[index,:]
         larvae_fitness = coral_class.get_sol_fitness(larvae_sol)    # Calcular el fitness de la larva
@@ -220,20 +229,19 @@ def larvae_setting(larvae_list, coral_map, coral_class, k):
             # Si la posicion (id) esta vacia (todas las componentes a 0), si no se compara con la que está asentada
             if int(np.sum(coral_map[try_pose,:])) == 0:
                 coral_map[try_pose,:] = larvae_sol
-                # print(f'He puesto una larva en la pose {try_pose} en {n_try} intentos')
+                # print(f'He puesto una larva en la pose {try_pose} no habia nada')
                 break
             else:
                 settled_fitness = coral_class.get_sol_fitness(coral_map[try_pose,:])    # Fitness de la solucion asentada
                 if larvae_fitness > settled_fitness:
                     coral_map[try_pose,:] = larvae_sol
-                    # print(f'He puesto una larva en la pose {try_pose} en {n_try} intentos')
+            
+                    # print(f'He puesto una larva de fit {larvae_fitness} en la pose {try_pose} que tenia un fit de {settled_fitness}')
                     break
                 else:
                     n_try = n_try + 1
 
-    coral_class.update_coral(coral_map)
-
-
+    return coral_map
 
 
 
@@ -247,15 +255,13 @@ def depredation(coral_class, Pd = 0.1):
 
     ids = filled_ranking[-1-n_depredated:]['id']
     
-
     _, coral_map = coral_class.get_coral_data()
-
 
     for id in ids:
         coral_map[id,:] = np.zeros((1,30))
 
     # coral_map[ids,:] = np.zeros((1,30))
-    coral_class.update_coral(coral_map)
+    return coral_map
 
 
 
@@ -263,70 +269,88 @@ def depredation(coral_class, Pd = 0.1):
 
 def main():
 
-    iter = 250   # Numero de iteraciones del algoritmo
+    iter = 1000   # Numero de iteraciones del algoritmo
     coral_class = CRO('Practica_Sist_Tec_Teleco.mat')
+
+    # Create save folder
+    if not os.path.exists(SAVE_PATH):
+        os.makedirs(SAVE_PATH)
 
     # init cv2 image and video writer
     img = np.zeros((1000,1000,3), np.uint8)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    out = cv2.VideoWriter('output.avi',cv2.VideoWriter_fourcc('M','J','P','G'), 5, (1000,1000))
+    out = cv2.VideoWriter(SAVE_PATH+'output.avi',cv2.VideoWriter_fourcc('M','J','P','G'), 5, (1000,1000))
 
     img = print_bt(coral_class.points_df, img)
     out.write(img)
 
     # cv2 video show
-    cv2.imshow('frame',img)
-    cv2.waitKey(1)
+    # cv2.imshow('frame',img)
+    # cv2.waitKey(1)
+
+    # np array to store the best solution of each iteration
+    fitness_solutions = []
+    plot_points = []
+    best_fit = 0
 
 
-    phases_times = np.zeros((iter,4),dtype = np.float16)
 
     ## Fases de reproduccion
     main_iterator = tqdm(range(iter))
     for i in main_iterator:
         
+ 
         poblated_id, coral_map = coral_class.get_coral_data()   # Poblated_id son los indices de coral_map que estan con corales
         larvae = np.array([])       # Aqui se van a almacenar las larvas que se generan
 
         # corals_left son los indices que se van a utilizar para brooding (los que sobran de broadcast_spawning)
-        tic = time.time()
         larvae, corals_left = broadcast_spawning(poblated_id, 0.9, larvae, coral_map) #Fb define la cantidad de broadcast spawners respecto al total de corales
-        phases_times[i,0] = time.time() - tic
+
         
-        tic = time.time()
         larvae = brooding(corals_left ,larvae ,coral_map).astype(int)
-        phases_times[i,1] = time.time() - tic
-        # np.savetxt('larvas.csv',larvae,delimiter=',', fmt='%.0d')
-        
+   
+
         ## Fase de asentamiento
-        tic = time.time()
-        larvae_setting(larvae,coral_map,coral_class,3)
-        phases_times[i,2] = time.time() - tic
+
+        coral_class.update_coral(larvae_setting(larvae,coral_class,3))
 
 
-        ###################### TODO Falta fase de asexual reproduction
+        ## TODO Asexual reproduction
 
 
         ## Fase de depredacion
-        tic = time.time()
-        depredation(coral_class)
-        phases_times[i,3] = time.time() - tic
 
-        sol, best_fit = coral_class.get_best_solution()
+        coral_class.update_coral(depredation(coral_class))
+
+
+        sol, loc_best_fit = coral_class.get_best_solution()
+        fitness_solutions.append(loc_best_fit)
+
+        if loc_best_fit > best_fit:
+            best_fit = loc_best_fit
+            plot_points.append(best_fit)
+        else:
+            plot_points.append(best_fit)
+        
 
         img = print_solution(sol, img)
         out.write(img)
-        cv2.imshow('frame',img)
-        cv2.waitKey(1)
+        # cv2.imshow('frame',img)
+        # cv2.waitKey(1)
 
         img = print_bt(coral_class.points_df, img)
         main_iterator.set_description(f'Current best fitness value {best_fit}')
     
-    # print(np.mean(phases_times,axis=0))
+    out.release()
 
     sol,_ = coral_class.get_best_solution()
     print(sol)
-    np.savetxt('best_sol.csv',sol,delimiter=',')
+
+    np.savetxt(SAVE_PATH+'best_sol.csv',sol,delimiter=',')
+    np.savetxt(SAVE_PATH+'fitness_solutions.csv',fitness_solutions,delimiter=',')
+
+    plt.plot(list(range(iter)),plot_points)
+    plt.savefig(SAVE_PATH+'fitness.png')
 
 
 

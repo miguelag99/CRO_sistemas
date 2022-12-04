@@ -17,14 +17,14 @@ def crossover(list1,list2):
     return np.vstack((child1,child2))
 
 def mutation(list1):
-    # Realiza mutación de una componente aleatoria de la solucion sin comprobar que este repetido, eso se hace fuera
+    # Realiza mutación de una componente aleatoria de la solucion 
 
     mutation_index = random.sample(range(30),1)[0]
     new_val = random.sample(range(100),1)[0]
 
     list1[mutation_index] = new_val
 
-    return np.array(list1)
+    return test_duplicated_solution(np.array(list1))
 
 def test_duplicated_solution(solution):
     # Comprueba que no haya duplicados en una solucion, si los hay los elimina e introduce un nuevo valor aleatorio
