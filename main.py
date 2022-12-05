@@ -11,7 +11,7 @@ from scipy.io import loadmat
 
 from utils import crossover, mutation, calculate_euclidean_distance, print_bt, print_solution
 
-SAVE_PATH = 'results_25_75/'
+SAVE_PATH = 'results_75_25/'
 
 # Caracteristicas
 # 2x2 Km
@@ -43,8 +43,8 @@ class CRO():
         self.rho = 0.4  #Define la cantidad inicial (ratio) de individuos libres
         
         # Parametros de la funcion de fitness normalizados
-        self.alpha = 0.25/len(self.clients_df)   # Normalizamos entre el total de clientes
-        self.beta = 0.75/sum(self.points_df['cost']) # Normalizamos entre el coste total de todas las estaciones
+        self.alpha = 0.75/len(self.clients_df)   # Normalizamos entre el total de clientes
+        self.beta = 0.25/sum(self.points_df['cost']) # Normalizamos entre el coste total de todas las estaciones
         # self.alpha = 1   # Normalizamos entre el total de clientes
         # self.beta = 0 # Normalizamos entre el coste total de todas las estaciones
 
