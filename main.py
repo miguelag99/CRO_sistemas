@@ -162,9 +162,6 @@ def main():
         coral_class.update_coral(larvae_setting(larvae,coral_class,3))
 
 
-        ## TODO Asexual reproduction
-
-
         ## Fase de depredacion
 
         coral_class.update_coral(depredation(coral_class))
